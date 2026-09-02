@@ -1,6 +1,8 @@
 import { RuleBasedMetadataExtractor } from './extractor';
 import { ExtractedMetadata } from './types';
 
+const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS || 30_000);
+
 export class MetadataExtractionService {
   static async extractMetadataAsync(text: string): Promise<ExtractedMetadata> {
     const llmEnabled = process.env.LLM_ENABLED === 'true';
@@ -53,6 +55,7 @@ Document Text:
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.0,
       }),
+      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) return null;

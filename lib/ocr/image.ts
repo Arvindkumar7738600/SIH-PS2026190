@@ -3,19 +3,44 @@ import { OcrProcessingResult } from './types';
 import path from 'path';
 import os from 'os';
 
+const OCR_TIMEOUT_MS = Number(process.env.OCR_TIMEOUT_MS || 40_000);
+
+function withTimeout<T>(operation: Promise<T>, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${OCR_TIMEOUT_MS}ms`));
+    }, OCR_TIMEOUT_MS);
+
+    operation.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}
+
 export async function extractTextFromImage(buffer: Buffer): Promise<OcrProcessingResult> {
   let worker: any = null;
   try {
     const cachePath = path.join(os.tmpdir(), 'tesseract-cache');
 
     // Tesseract worker initialize karein
-    worker = await createWorker('eng', 1, {
+    worker = await withTimeout(createWorker('eng', 1, {
       cachePath,
       logger: () => { },
-    });
+    }), 'OCR worker initialization');
 
     // Image recognize karein (Ise ab pura time milega)
-    const { data } = await worker.recognize(buffer);
+    const recognition = await withTimeout<{ data: { text?: string; confidence?: number } }>(
+      worker.recognize(buffer),
+      'OCR image recognition'
+    );
+    const { data } = recognition;
     await worker.terminate();
 
     const recognizedText = data.text ? data.text.trim() : '';

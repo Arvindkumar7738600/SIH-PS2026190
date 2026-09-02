@@ -4,6 +4,7 @@ import { RuleBasedClassifier } from './fallback';
 import { z } from 'zod';
 
 const DocumentTypeSchema = z.nativeEnum(DocumentType);
+const AI_REQUEST_TIMEOUT_MS = Number(process.env.AI_REQUEST_TIMEOUT_MS || 30_000);
 
 export class AIClassificationProvider {
   static async classify(text: string): Promise<ClassificationResult> {
@@ -57,6 +58,7 @@ Document Content snippet:
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.1,
       }),
+      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) return null;
@@ -102,6 +104,7 @@ Document Content snippet:
         inputs: text.substring(0, 1000),
         parameters: { candidate_labels: candidateLabels },
       }),
+      signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) return null;

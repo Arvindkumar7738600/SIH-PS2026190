@@ -7,6 +7,8 @@ import {
   EmbeddingPageInput,
 } from './semantic-search';
 
+const EMBEDDING_DB_TIMEOUT_MS = Number(process.env.EMBEDDING_DB_TIMEOUT_MS || 30_000);
+
 export async function indexDocumentEmbeddings(
   documentId: string,
   versionId: string,
@@ -48,7 +50,7 @@ export async function indexDocumentEmbeddings(
         )
       `;
     }
-  });
+  }, { timeout: EMBEDDING_DB_TIMEOUT_MS });
 
   return chunks.length;
 }

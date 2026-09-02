@@ -4,6 +4,27 @@ import { ProcessingStatus } from '@prisma/client';
 import { indexDocumentEmbeddings } from '@/lib/embeddings/indexer';
 import { loadDocumentPlaintext } from '@/lib/documents/document-bytes';
 
+const PROCESSING_STEP_TIMEOUT_MS = Number(process.env.PROCESSING_STEP_TIMEOUT_MS || 45_000);
+
+function withTimeout<T>(operation: Promise<T>, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${PROCESSING_STEP_TIMEOUT_MS}ms`));
+    }, PROCESSING_STEP_TIMEOUT_MS);
+
+    operation.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}
+
 export class ProcessingService {
   static async processDocumentJob(documentId: string, versionId?: string): Promise<{ success: boolean; pagesCount: number; error?: string }> {
     // 1. Fetch target Document & Version
@@ -62,7 +83,10 @@ export class ProcessingService {
       }
 
       // 5. Execute OCR / Text Extraction
-      const ocrResult = await OCRService.processDocument(plaintextBuffer, document.mimeType);
+      const ocrResult = await withTimeout(
+        OCRService.processDocument(plaintextBuffer, document.mimeType),
+        'OCR processing'
+      );
 
       if (!ocrResult.success) {
         throw new Error(ocrResult.error || 'OCR text extraction failed');
@@ -89,18 +113,17 @@ export class ProcessingService {
       });
 
       // 6b. Build semantic chunk embeddings for pgvector search.
-      try {
-        await indexDocumentEmbeddings(
+      await withTimeout(
+        indexDocumentEmbeddings(
           document.id,
           version.id,
           ocrResult.pages.map((page) => ({
             pageNumber: page.pageNumber,
             text: page.text,
           }))
-        );
-      } catch (embeddingError: any) {
-        console.warn('Embedding index generation failed; continuing processing:', embeddingError?.message || embeddingError);
-      }
+        ),
+        'Embedding indexing'
+      );
 
       // Combine text for AI Classification & Metadata Extraction
       const combinedText = ocrResult.pages.map((p) => p.text).join('\n\n');
