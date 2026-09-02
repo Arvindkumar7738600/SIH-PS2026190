@@ -4,6 +4,9 @@ import path from 'path';
 import os from 'os';
 
 const OCR_TIMEOUT_MS = Number(process.env.OCR_TIMEOUT_MS || 40_000);
+const TESSERACT_VERSION = '5.1.1';
+const TESSERACT_CORE_CDN = `https://cdn.jsdelivr.net/npm/tesseract.js-core@${TESSERACT_VERSION}`;
+const TESSERACT_LANG_CDN = 'https://tessdata.projectnaptha.com/4.0.0';
 
 function withTimeout<T>(operation: Promise<T>, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -28,10 +31,20 @@ export async function extractTextFromImage(buffer: Buffer): Promise<OcrProcessin
   let worker: any = null;
   try {
     const cachePath = path.join(os.tmpdir(), 'tesseract-cache');
+    const runningOnVercel = process.env.VERCEL === '1' || Boolean(process.env.VERCEL);
 
-    // Tesseract worker initialize karein
+    // Node still needs a local worker-thread entrypoint, but its core and
+    // language assets can be downloaded from CDN instead of /var/task.
     worker = await withTimeout(createWorker('eng', 1, {
       cachePath,
+      workerPath: process.env.TESSERACT_WORKER_PATH || path.join(
+        process.cwd(),
+        'node_modules/tesseract.js/src/worker-script/node/index.js'
+      ),
+      ...(runningOnVercel ? {
+        corePath: process.env.TESSERACT_CORE_PATH || TESSERACT_CORE_CDN,
+        langPath: process.env.TESSERACT_LANG_PATH || TESSERACT_LANG_CDN,
+      } : {}),
       logger: () => { },
     }), 'OCR worker initialization');
 
@@ -41,8 +54,6 @@ export async function extractTextFromImage(buffer: Buffer): Promise<OcrProcessin
       'OCR image recognition'
     );
     const { data } = recognition;
-    await worker.terminate();
-
     const recognizedText = data.text ? data.text.trim() : '';
 
     return {
@@ -59,9 +70,6 @@ export async function extractTextFromImage(buffer: Buffer): Promise<OcrProcessin
       method: 'OCR',
     };
   } catch (err: any) {
-    if (worker) {
-      await worker.terminate().catch(() => { });
-    }
     console.error('OCR Extraction Error:', err);
     return {
       success: false,
@@ -76,5 +84,11 @@ export async function extractTextFromImage(buffer: Buffer): Promise<OcrProcessin
       totalPages: 1,
       method: 'OCR',
     };
+  } finally {
+    if (worker) {
+      await worker.terminate().catch((terminationError: unknown) => {
+        console.error('OCR worker termination error:', terminationError);
+      });
+    }
   }
 }

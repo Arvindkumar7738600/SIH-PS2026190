@@ -4,6 +4,14 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ["pdf-parse", "tesseract.js", "bcryptjs"]
   },
+  // Tesseract's Node worker loads its WASM core with require(), so explicitly
+  // include those assets in Vercel's serverless function trace.
+  outputFileTracingIncludes: {
+    '/*': [
+      './node_modules/tesseract.js/src/worker-script/node/**/*',
+      './node_modules/tesseract.js-core/**/*',
+    ],
+  },
   async headers() {
     return [
       {
